@@ -1,0 +1,6 @@
+# Local Netlify folder
+.netlify
+__pycache__/
+tests/__pycache__/
+public/
+node_modules/

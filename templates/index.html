@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quét danh sách bang hội</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">CÔNG CỤ OCR</p>
+        <h1>Quét danh sách<br>bang hội</h1>
+      </div>
+      <div class="status" id="status"><span></span> Sẵn sàng</div>
+    </header>
+
+    <section class="upload-card" id="uploadCard">
+      <input id="fileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp" multiple hidden>
+      <button class="upload-icon" id="chooseButton" type="button" aria-label="Chọn ảnh">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg>
+      </button>
+      <div>
+        <h2>Kéo và thả ảnh vào đây</h2>
+        <p>PNG, JPG, JPEG, WEBP hoặc BMP — tối đa 20 MB mỗi ảnh</p>
+      </div>
+      <button class="secondary-button" id="browseButton" type="button">Chọn ảnh</button>
+    </section>
+
+    <section class="file-list" id="fileList" hidden></section>
+
+    <div class="action-row" id="actionRow" hidden>
+      <button class="primary-button" id="scanButton" type="button">Bắt đầu nhận diện</button>
+      <button class="text-button" id="clearButton" type="button">Xóa ảnh</button>
+    </div>
+
+    <div class="loading" id="loading" hidden>
+      <div class="spinner"></div>
+      <div>
+        <strong id="loadingTitle">Đang khởi tạo EasyOCR...</strong>
+        <p>Quá trình này có thể mất vài phút lần đầu.</p>
+      </div>
+    </div>
+
+    <section class="result-section" id="resultSection" hidden>
+      <div class="result-heading">
+        <div>
+          <p class="eyebrow">KẾT QUẢ</p>
+          <h2 id="resultTitle">Danh sách thành viên</h2>
+        </div>
+        <button class="primary-button" id="exportButton" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+          Xuất Excel
+        </button>
+      </div>
+
+      <div class="metrics" id="metrics"></div>
+      <div class="table-wrap">
+        <table id="resultTable"></table>
+      </div>
+    </section>
+
+    <div class="toast" id="toast" role="alert" hidden></div>
+  </main>
+  <script src="/static/vendor/tesseract.min.js"></script>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>
