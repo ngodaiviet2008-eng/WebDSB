@@ -1,47 +1,69 @@
-# Website quét danh sách bang hội
+# WebDSB
 
-Website Flask nhận nhiều ảnh, tái sử dụng công cụ OCR Python hiện có và xuất file Excel.
+Website quét danh sách thành viên bang hội từ ảnh, nhận diện tên tiếng Việt và xuất kết quả sang Excel.
 
-## Chạy ứng dụng
+**Dùng thử:** [webdsb.netlify.app](https://webdsb.netlify.app/)
 
-```powershell
-cd "C:\Users\ngoda\OneDrive\Tài liệu\WebDSB"
-python -m pip install -r requirements.txt
-python app.py
-```
+## Tính năng
 
-Mở `http://127.0.0.1:5000` để chạy cục bộ. Bản công khai: `https://webdsb.netlify.app/`.
+- Chọn hoặc kéo-thả tối đa **20 ảnh** định dạng PNG, JPG, JPEG, WEBP hoặc BMP; mỗi ảnh tối đa **20 MB**.
+- Nhận diện STT, tên người chơi và phái bằng OCR tiếng Việt và tiếng Anh.
+- Xử lý ảnh ngay trên trình duyệt; ảnh không được tải lên máy chủ.
+- Phát hiện STT thiếu hoặc trùng, giữ lại các thành viên khác nhau ngay cả khi OCR đọc trùng STT, và đánh dấu các ô cần kiểm tra.
+- Xem và chỉnh sửa kết quả trước khi xuất Excel.
+- Tạo workbook gồm trang danh sách và trang kiểm tra; danh sách có bộ lọc, tiêu đề cố định và màu hàng xen kẽ.
 
-## Luồng sử dụng
+> Độ chính xác OCR phụ thuộc vào độ rõ và bố cục ảnh. Hãy xem lại các ô được đánh dấu trước khi dùng hoặc chia sẻ file Excel.
 
-1. Chọn hoặc kéo-thả nhiều ảnh PNG/JPG/JPEG/WEBP/BMP.
-2. Bấm **Bắt đầu nhận diện**.
-3. Kiểm tra và sửa dữ liệu trong bảng.
-4. Bấm **Xuất Excel** để tải file `.xlsx`.
+## Cách sử dụng
 
-Excel có hai trang: danh sách thành viên được tô màu xen kẽ, cố định hàng tiêu đề và bật bộ lọc; trang kiểm tra tổng hợp STT thiếu/trùng và các ô cần xem lại.
+1. Mở [website](https://webdsb.netlify.app/).
+2. Chọn hoặc kéo-thả ảnh chụp danh sách thành viên vào trang.
+3. Bấm **Bắt đầu nhận diện** và chờ xử lý hoàn tất.
+4. Kiểm tra các cảnh báo; có thể bấm vào ô để sửa nội dung.
+5. Bấm **Xuất Excel** để tải workbook.
 
-File OCR gốc được tích hợp trực tiếp từ `quet_bang_hoi_claude - Android2.py`.
+Lần đầu sử dụng, trình duyệt cần tải mô hình OCR. Các lần sau có thể dùng dữ liệu đã lưu trong bộ nhớ đệm của trình duyệt.
 
-OCR xử lý thêm ảnh tăng tương phản CLAHE và ảnh đảo màu để giữ dấu tiếng Việt rõ hơn; các tên viết hoa bị OCR chèn khoảng trắng cũng được nối lại. Một số tên trong bộ ảnh game mẫu có quy tắc sửa lỗi cụ thể trong `sua_loi_dau_ten`.
+## Chạy trên máy tính
 
-Chạy kiểm thử chuẩn hóa tên:
+### Yêu cầu
 
-```powershell
-python -m unittest discover -s tests -v
-```
+- Node.js và npm
+- Python 3
+- Kết nối Internet trong lần build đầu tiên để tải mô hình OCR nếu chưa có sẵn
 
-## Nhận diện trên trình duyệt
-
-OCR dùng Tesseract.js với mô hình `vie` và `eng`. Ảnh được xử lý trong trình duyệt; chỉ mã OCR và mô hình ngôn ngữ được tải từ trang Netlify, không gửi ảnh lên server. STT được nhận diện lại bằng vùng cắt rộng hơn khi kết quả chưa chắc chắn; tên và phái được thử lại với ngưỡng cắt ảnh thấp hơn nếu độ tin cậy thấp. Các ảnh chồng lặp chỉ được gộp khi tên đủ giống; nếu cùng STT nhưng tên chỉ ra thành viên khác, cả hai dòng được giữ lại và đánh dấu để tránh mất dữ liệu. STT sai hoặc trống chỉ được khôi phục khi nhiều số đọc được trong cùng đoạn ảnh xác nhận rõ thứ tự; nếu bằng chứng yếu, dòng được giữ để kiểm tra thay vì tự đoán. Hãy xem lại ô được đánh dấu trước khi xuất Excel.
-
-## Xuất bản website lên Netlify
+Mở PowerShell tại thư mục dự án và chạy:
 
 ```powershell
-python -m pip install -r requirements.txt
 npm.cmd install
 npm.cmd run build
-netlify deploy --prod --dir public
+python -m http.server 8000 --directory public
 ```
 
-Lệnh build tải mô hình OCR tiếng Việt/Anh và đóng gói tài nguyên cần thiết vào thư mục `public`.
+Sau đó mở <http://localhost:8000>. Dừng máy chủ bằng `Ctrl+C`.
+
+Lệnh build tạo website tĩnh trong thư mục `public/`; thư mục này không được đưa vào Git vì có thể tạo lại.
+
+## Kiểm thử
+
+```powershell
+npm.cmd test
+```
+
+## Cấu trúc dự án
+
+| Đường dẫn | Vai trò |
+| --- | --- |
+| `templates/index.html` | Khung trang web |
+| `static/app.js` | Chọn ảnh, chạy OCR và hiển thị kết quả |
+| `static/ocr-utils.js` | Xử lý ảnh, chuẩn hóa và gộp kết quả, tạo Excel |
+| `static/style.css` | Giao diện |
+| `tests/` | Kiểm thử OCR và workbook |
+| `build_static.py` | Đóng gói website và tài nguyên OCR vào `public/` |
+
+OCR sử dụng [Tesseract.js](https://github.com/naptha/tesseract.js) với mô hình ngôn ngữ tiếng Việt (`vie`) và tiếng Anh (`eng`).
+
+## Riêng tư
+
+Ảnh được xử lý cục bộ trong trình duyệt, không gửi lên máy chủ. Trình duyệt tải mã OCR và mô hình ngôn ngữ để thực hiện nhận diện.
