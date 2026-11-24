@@ -10,7 +10,7 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-Mở `http://127.0.0.1:5000`.
+Mở `http://127.0.0.1:5000` để chạy cục bộ. Bản công khai: `https://webdsb.netlify.app/`.
 
 ## Luồng sử dụng
 
@@ -18,6 +18,8 @@ Mở `http://127.0.0.1:5000`.
 2. Bấm **Bắt đầu nhận diện**.
 3. Kiểm tra và sửa dữ liệu trong bảng.
 4. Bấm **Xuất Excel** để tải file `.xlsx`.
+
+Excel có hai trang: danh sách thành viên được tô màu xen kẽ, cố định hàng tiêu đề và bật bộ lọc; trang kiểm tra tổng hợp STT thiếu/trùng và các ô cần xem lại.
 
 File OCR gốc được tích hợp trực tiếp từ `quet_bang_hoi_claude - Android2.py`.
 
@@ -31,7 +33,7 @@ python -m unittest discover -s tests -v
 
 ## Nhận diện trên trình duyệt
 
-OCR dùng Tesseract.js với mô hình `vie` và `eng`. Ảnh được xử lý trong trình duyệt; chỉ mã OCR và mô hình ngôn ngữ được tải từ trang Netlify, không gửi ảnh lên server.
+OCR dùng Tesseract.js với mô hình `vie` và `eng`. Ảnh được xử lý trong trình duyệt; chỉ mã OCR và mô hình ngôn ngữ được tải từ trang Netlify, không gửi ảnh lên server. STT được nhận diện lại bằng vùng cắt rộng hơn khi kết quả chưa chắc chắn; tên và phái được thử lại với ngưỡng cắt ảnh thấp hơn nếu độ tin cậy thấp. Các ảnh chồng lặp chỉ được gộp khi tên đủ giống; nếu cùng STT nhưng tên chỉ ra thành viên khác, cả hai dòng được giữ lại và đánh dấu để tránh mất dữ liệu. STT sai hoặc trống chỉ được khôi phục khi nhiều số đọc được trong cùng đoạn ảnh xác nhận rõ thứ tự; nếu bằng chứng yếu, dòng được giữ để kiểm tra thay vì tự đoán. Hãy xem lại ô được đánh dấu trước khi xuất Excel.
 
 ## Xuất bản website lên Netlify
 

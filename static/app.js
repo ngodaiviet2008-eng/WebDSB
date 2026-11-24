@@ -140,7 +140,16 @@ function loadCanvas(file) {
   });
 }
 
-async function recognizeCell(worker, canvas, centerY, column, scaleX, scaleY) {
+async function recognizeCell(
+  worker,
+  canvas,
+  centerY,
+  column,
+  scaleX,
+  scaleY,
+  threshold = 170,
+  wide = false,
+) {
   const processed = prepareCell(
     canvas,
     canvas.width,
@@ -149,9 +158,11 @@ async function recognizeCell(worker, canvas, centerY, column, scaleX, scaleY) {
     scaleY,
     centerY,
     column,
+    threshold,
+    wide,
   );
   await worker.setParameters({
-    tessedit_pageseg_mode: window.Tesseract.PSM.SINGLE_LINE,
+    tessedit_pageseg_mode: Number(window.Tesseract.PSM.SINGLE_LINE),
     tessedit_char_whitelist: column === "STT" ? "0123456789" : "",
     preserve_interword_spaces: "1",
     user_defined_dpi: "300",
@@ -188,9 +199,53 @@ async function recognizeImages(worker) {
 
     for (let rowIndex = 0; rowIndex < centers.length; rowIndex += 1) {
       loadingTitle.textContent = `Đang nhận diện ảnh ${imageIndex + 1}/${selectedFiles.length} · dòng ${rowIndex + 1}/${centers.length}`;
-      const sttResult = await recognizeCell(worker, canvas, centers[rowIndex], "STT", scaleX, scaleY);
-      const nameResult = await recognizeCell(worker, canvas, centers[rowIndex], "Tên Người Chơi", scaleX, scaleY);
-      const classResult = await recognizeCell(worker, canvas, centers[rowIndex], "Phái", scaleX, scaleY);
+      let sttResult = await recognizeCell(worker, canvas, centers[rowIndex], "STT", scaleX, scaleY);
+      const sttDigits = sttResult.text.replace(/\D/g, "");
+      if (sttDigits.length <= 1 || sttResult.confidence < 65) {
+        const widerSttResult = await recognizeCell(
+          worker,
+          canvas,
+          centers[rowIndex],
+          "STT",
+          scaleX,
+          scaleY,
+          170,
+          true,
+        );
+        const widerDigits = widerSttResult.text.replace(/\D/g, "");
+        if (
+          widerDigits.length > sttDigits.length
+          || (widerDigits === sttDigits && widerSttResult.confidence > sttResult.confidence)
+        ) {
+          sttResult = widerSttResult;
+        }
+      }
+      let nameResult = await recognizeCell(worker, canvas, centers[rowIndex], "Tên Người Chơi", scaleX, scaleY);
+      if (!nameResult.text || nameResult.confidence < 55) {
+        const alternate = await recognizeCell(
+          worker,
+          canvas,
+          centers[rowIndex],
+          "Tên Người Chơi",
+          scaleX,
+          scaleY,
+          130,
+        );
+        if (alternate.text && alternate.confidence > nameResult.confidence) nameResult = alternate;
+      }
+      let classResult = await recognizeCell(worker, canvas, centers[rowIndex], "Phái", scaleX, scaleY);
+      if (!classResult.text || classResult.confidence < 55) {
+        const alternate = await recognizeCell(
+          worker,
+          canvas,
+          centers[rowIndex],
+          "Phái",
+          scaleX,
+          scaleY,
+          130,
+        );
+        if (alternate.text && alternate.confidence > classResult.confidence) classResult = alternate;
+      }
       const number = Number(sttResult.text.replace(/\D/g, ""));
       const stt = Number.isInteger(number) && number > 0 && number <= 999 ? number : null;
       const name = normalizeName(nameResult.text);
@@ -211,6 +266,7 @@ async function recognizeImages(worker) {
         review,
         imageIndex,
         rowIndex,
+        centerY: centers[rowIndex],
       });
     }
   }
@@ -238,7 +294,7 @@ scanButton.addEventListener("click", async () => {
       },
     });
     await worker.setParameters({
-      tessedit_pageseg_mode: window.Tesseract.PSM.SINGLE_LINE,
+      tessedit_pageseg_mode: Number(window.Tesseract.PSM.SINGLE_LINE),
       preserve_interword_spaces: "1",
       user_defined_dpi: "300",
     });
@@ -253,7 +309,9 @@ scanButton.addEventListener("click", async () => {
     const present = new Set(knownNumbers);
     const missing = Array.from({ length: maxNumber }, (_, index) => index + 1)
       .filter((number) => !present.has(number));
-    const conflicts = resultRows.filter((row) => row.conflict).map((row) => row.STT);
+    const conflicts = [...new Set(resultRows
+      .filter((row) => row.conflict)
+      .map((row) => row.STT))];
     resultSummary = { missing, conflicts, imageErrors, imageCount: selectedFiles.length };
     renderResult(resultRows, resultSummary);
     if (imageErrors.length) {

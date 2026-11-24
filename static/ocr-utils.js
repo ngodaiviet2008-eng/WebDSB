@@ -131,8 +131,10 @@ function textBounds(imageData, width, height, threshold, sy) {
   return { left, top, right, bottom };
 }
 
-export function prepareCell(source, width, height, sx, sy, centerY, column, threshold = 170) {
-  const [refLeft, refRight] = CELL_COLUMNS[column];
+export function prepareCell(source, width, height, sx, sy, centerY, column, threshold = 170, wide = false) {
+  const [refLeft, refRight] = column === "STT" && wide
+    ? [248, 322]
+    : CELL_COLUMNS[column];
   const left = Math.max(0, Math.round(refLeft * sx));
   const right = Math.min(width, Math.round(refRight * sx));
   const halfHeight = Math.round(28 * sy);
@@ -184,6 +186,31 @@ export function prepareCell(source, width, height, sx, sy, centerY, column, thre
   const low = percentile(0.02);
   const high = percentile(0.98);
   const range = Math.max(1, high - low);
+  let otsuThreshold = 0;
+  if (column === "STT") {
+    let totalBrightness = 0;
+    for (let value = 0; value < histogram.length; value += 1) {
+      totalBrightness += value * histogram[value];
+    }
+    let backgroundWeight = 0;
+    let backgroundBrightness = 0;
+    let maxVariance = -1;
+    for (let value = 0; value < histogram.length; value += 1) {
+      backgroundWeight += histogram[value];
+      if (!backgroundWeight) continue;
+      const foregroundWeight = gray.length - backgroundWeight;
+      if (!foregroundWeight) break;
+      backgroundBrightness += value * histogram[value];
+      const backgroundMean = backgroundBrightness / backgroundWeight;
+      const foregroundMean = (totalBrightness - backgroundBrightness) / foregroundWeight;
+      const variance = backgroundWeight * foregroundWeight
+        * (backgroundMean - foregroundMean) ** 2;
+      if (variance > maxVariance) {
+        maxVariance = variance;
+        otsuThreshold = value;
+      }
+    }
+  }
   const scale = 4;
   const padding = 24;
   const output = document.createElement("canvas");
@@ -194,7 +221,9 @@ export function prepareCell(source, width, height, sx, sy, centerY, column, thre
   outputContext.fillRect(0, 0, output.width, output.height);
   const processed = outputContext.createImageData(cropWidth, cropHeight);
   for (let i = 0; i < gray.length; i += 1) {
-    const value = 255 - Math.max(0, Math.min(255, Math.round(((gray[i] - low) / range) * 255)));
+    const value = column === "STT"
+      ? (gray[i] > otsuThreshold ? 0 : 255)
+      : 255 - Math.max(0, Math.min(255, Math.round(((gray[i] - low) / range) * 255)));
     const offset = i * 4;
     processed.data[offset] = value;
     processed.data[offset + 1] = value;
@@ -231,15 +260,27 @@ export function normalizeName(value) {
   name = name.replace(/^[)\]}>|]+\s*/, "").replace(/^\d+\s+/, "");
   const key = normalizeVietnamese(name).replace(/\s/g, "");
   const corrections = {
+    ethan: "E T H A N",
     hongtri: "HồngTrì",
     hongtr: "HồngTrì",
+    bongtrung: "Đông Trùng",
     tongvankhanh: "Tống Vân Khanh",
     hachy: "Hắc Hy",
+    hancuacua: "Hàn Cua Cua",
+    lambucbao: "LâmĐứcBảo",
+    qviet83t: "Qviet83",
+    qwiet83t: "Qviet83",
     vekienduc: "VệKiệnĐức",
+    vekienbuc: "VệKiệnĐức",
+    vegiangamcanh: "VệGiàNgắmCảnh",
     thanhduong: "ThanhĐường",
+    lamducbao: "LâmĐứcBảo",
+    lamduucbao: "LâmĐứcBảo",
+    zogemzuogsinh: "ZôGêmZươngSinh",
     duhinhangia: "du hí nhân gia",
     chammien: "Chẩm Miên",
     hopdoa123: "HợpĐoa123",
+    hopboal23: "HợpĐoa123",
   };
   if (corrections[key]) return corrections[key];
   const parts = name.split(/\s+/);
@@ -284,24 +325,51 @@ function similarity(left, right) {
 }
 
 export function mergeRows(rows) {
-  const byKey = new Map();
-  for (const row of rows) {
-    const key = row.STT ? `stt:${row.STT}` : `unknown:${row.imageIndex}:${row.rowIndex}`;
-    if (!byKey.has(key)) {
-      byKey.set(key, { ...row, votes: [row], conflict: false });
-    } else {
-      byKey.get(key).votes.push(row);
+  const preparedRows = recoverSequentialStt(rows);
+  recoverOverlappingStt(preparedRows);
+  const records = [];
+  for (const row of preparedRows) {
+    const matches = row.STT == null ? [] : records.filter((record) => (
+      record.STT === row.STT
+      && record.votes.some((vote) => sameMember(vote, row))
+    ));
+    if (matches.length === 1) matches[0].votes.push(row);
+    else records.push({ ...row, votes: [row], duplicateStt: false });
+  }
+
+  const recordsByStt = new Map();
+  for (const record of records) {
+    if (record.STT == null) continue;
+    recordsByStt.set(record.STT, (recordsByStt.get(record.STT) || 0) + 1);
+  }
+  for (const record of records) {
+    if (record.STT != null && recordsByStt.get(record.STT) > 1) {
+      record.duplicateStt = true;
     }
   }
 
-  const merged = [...byKey.values()].map((record) => {
+  const merged = records.map((record) => {
     const nameGroups = groupVotes(record.votes, "Tên Người Chơi");
     const classGroups = groupVotes(record.votes, "Phái");
     const nameWinner = nameGroups.sort((a, b) => b.count - a.count || b.confidence - a.confidence)[0];
     const classWinner = classGroups.sort((a, b) => b.count - a.count || b.confidence - a.confidence)[0];
-    const conflict = record.STT && nameGroups.length > 1;
-    const review = [...new Set(record.votes.flatMap((vote) => vote.review || []))];
-    if (conflict) review.push("Tên khác nhau giữa các ảnh chụp");
+    const nameConflict = Boolean(record.STT && nameGroups.length > 1);
+    const conflict = Boolean(record.duplicateStt || nameConflict);
+    const review = [];
+    if (!record.STT) review.push("Không đọc được STT");
+    if (!nameWinner?.value) {
+      review.push("Không đọc được tên");
+    } else if (nameWinner.confidence > 0 && nameWinner.confidence < 45) {
+      review.push(`Độ tin cậy tên thấp (${Math.round(nameWinner.confidence)}%)`);
+    }
+    if (!classWinner?.value) {
+      review.push("Không đọc được phái");
+    } else if (classWinner.confidence > 0 && classWinner.confidence < 45) {
+      review.push(`Độ tin cậy phái thấp (${Math.round(classWinner.confidence)}%)`);
+    }
+    if (nameConflict) review.push("Tên khác nhau giữa các ảnh chụp");
+    if (record.duplicateStt) review.push("STT trùng với thành viên khác");
+    if (record.STT && classGroups.length > 1) review.push("Phái khác nhau giữa các ảnh chụp");
     return {
       STT: record.STT,
       "Tên Người Chơi": nameWinner?.value || "",
@@ -314,7 +382,220 @@ export function mergeRows(rows) {
       conflict,
     };
   });
+  recoverSingleMissingStt(merged);
   return merged.sort((a, b) => (a.STT || Number.MAX_SAFE_INTEGER) - (b.STT || Number.MAX_SAFE_INTEGER));
+}
+
+function recoverSingleMissingStt(rows) {
+  const unknownRows = rows.filter((row) => row.STT == null);
+  if (unknownRows.length !== 1 || !unknownRows[0]["Tên Người Chơi"] || !unknownRows[0].Phái) return;
+
+  const known = rows.filter((row) => row.STT != null);
+  const counts = new Map();
+  for (const row of known) counts.set(row.STT, (counts.get(row.STT) || 0) + 1);
+  if ([...counts.values()].some((count) => count > 1)) return;
+
+  const max = Math.max(0, ...counts.keys());
+  if (!max || rows.length !== max) return;
+  const present = new Set(counts.keys());
+  const missing = Array.from({ length: max }, (_, index) => index + 1)
+    .filter((number) => !present.has(number));
+  if (missing.length !== 1) return;
+
+  unknownRows[0].STT = missing[0];
+  unknownRows[0].review = unknownRows[0].review
+    .filter((reason) => reason !== "Không đọc được STT");
+}
+
+function sameMember(left, right) {
+  const leftName = normalizeVietnamese(left["Tên Người Chơi"] || "").replace(/\s/g, "");
+  const rightName = normalizeVietnamese(right["Tên Người Chơi"] || "").replace(/\s/g, "");
+  if (!leftName || !rightName) return false;
+  if (leftName === rightName) return true;
+  const leftClass = normalizeVietnamese(left.Phái || "").replace(/\s/g, "");
+  const rightClass = normalizeVietnamese(right.Phái || "").replace(/\s/g, "");
+  return leftClass && leftClass === rightClass && similarity(leftName, rightName) >= 0.9;
+}
+
+function recoverSequentialStt(rows) {
+  const prepared = rows.map((row) => ({ ...row, review: [...(row.review || [])] }));
+  const byImage = new Map();
+  for (const row of prepared) {
+    if (row.imageIndex == null || row.rowIndex == null) continue;
+    const imageRows = byImage.get(row.imageIndex) || [];
+    imageRows.push(row);
+    byImage.set(row.imageIndex, imageRows);
+  }
+
+  for (const imageRows of byImage.values()) {
+    imageRows.sort((a, b) => a.rowIndex - b.rowIndex);
+    for (let index = 1; index < imageRows.length - 1; index += 1) {
+      const previous = imageRows[index - 1];
+      const current = imageRows[index];
+      const next = imageRows[index + 1];
+      if (
+        previous.STT != null
+        && next.STT === previous.STT + 2
+        && current.STT !== previous.STT + 1
+      ) {
+        current.STT = previous.STT + 1;
+        current.review = current.review.filter((reason) => reason !== "Không đọc được STT");
+      }
+    }
+
+    for (let start = 0; start < imageRows.length;) {
+      if (imageRows[start].STT != null) {
+        start += 1;
+        continue;
+      }
+      let end = start + 1;
+      while (end < imageRows.length && imageRows[end].STT == null) end += 1;
+      const previous = imageRows[start - 1];
+      const next = imageRows[end];
+      if (
+        previous?.STT != null
+        && next?.STT != null
+        && next.STT > previous.STT
+        && next.STT - previous.STT === next.rowIndex - previous.rowIndex
+      ) {
+        for (let index = start; index < end; index += 1) {
+          imageRows[index].STT = previous.STT + imageRows[index].rowIndex - previous.rowIndex;
+          imageRows[index].review = imageRows[index].review
+            .filter((reason) => reason !== "Không đọc được STT");
+        }
+      }
+      start = end;
+    }
+
+    for (let start = 0; start < imageRows.length;) {
+      if (imageRows[start].STT != null) {
+        start += 1;
+        continue;
+      }
+      let end = start + 1;
+      while (end < imageRows.length && imageRows[end].STT == null) end += 1;
+      const previous = imageRows[start - 1];
+      const next = imageRows[end];
+      let runEnd = end;
+      while (
+        runEnd + 1 < imageRows.length
+        && imageRows[runEnd + 1].STT === imageRows[runEnd].STT + 1
+      ) {
+        runEnd += 1;
+      }
+      if (
+        next?.STT != null
+        && runEnd - end >= 2
+        && (previous?.STT == null || previous.STT > next.STT)
+        && next.STT - (end - start) === 1
+      ) {
+        for (let index = start; index < end; index += 1) {
+          imageRows[index].STT = index - start + 1;
+          imageRows[index].review = imageRows[index].review
+            .filter((reason) => reason !== "Không đọc được STT");
+        }
+      }
+      start = end;
+    }
+
+    let trailingStart = imageRows.length;
+    while (trailingStart > 0 && imageRows[trailingStart - 1].STT == null) trailingStart -= 1;
+    if (trailingStart < imageRows.length && trailingStart > 0) {
+      let runStart = trailingStart - 1;
+      while (
+        runStart > 0
+        && imageRows[runStart - 1].STT === imageRows[runStart].STT - 1
+      ) {
+        runStart -= 1;
+      }
+      if (trailingStart - runStart >= 3) {
+        for (let index = trailingStart; index < imageRows.length; index += 1) {
+          imageRows[index].STT = imageRows[index - 1].STT + 1;
+          imageRows[index].review = imageRows[index].review
+            .filter((reason) => reason !== "Không đọc được STT");
+        }
+      }
+    }
+  }
+  recoverImageSequenceStt(prepared);
+  return prepared;
+}
+
+function recoverImageSequenceStt(rows) {
+  const byImage = new Map();
+  for (const row of rows) {
+    if (row.imageIndex == null || row.rowIndex == null || !Number.isFinite(row.centerY)) continue;
+    const imageRows = byImage.get(row.imageIndex) || [];
+    imageRows.push(row);
+    byImage.set(row.imageIndex, imageRows);
+  }
+
+  for (const imageRows of byImage.values()) {
+    if (imageRows.length < 3) continue;
+    imageRows.sort((a, b) => a.rowIndex - b.rowIndex);
+    const spacings = imageRows.slice(1)
+      .map((row, index) => row.centerY - imageRows[index].centerY)
+      .filter((spacing) => spacing > 0)
+      .sort((a, b) => a - b);
+    if (!spacings.length) continue;
+    const typicalSpacing = spacings[Math.floor(spacings.length / 2)];
+    const segments = [[]];
+    for (let index = 0; index < imageRows.length; index += 1) {
+      if (
+        index
+        && imageRows[index].centerY - imageRows[index - 1].centerY > typicalSpacing * 1.5
+      ) {
+        segments.push([]);
+      }
+      segments[segments.length - 1].push(imageRows[index]);
+    }
+
+    for (const segment of segments) {
+      const offsets = new Map();
+      for (const row of segment) {
+        if (row.STT == null) continue;
+        const offset = row.STT - row.rowIndex;
+        offsets.set(offset, (offsets.get(offset) || 0) + 1);
+      }
+      const [offset, count] = [...offsets.entries()]
+        .sort((left, right) => right[1] - left[1])[0] || [];
+      const knownCount = [...offsets.values()].reduce((sum, value) => sum + value, 0);
+      if (!Number.isInteger(offset) || count < 3 || count / knownCount < 0.75) continue;
+
+      for (const row of segment) {
+        const expected = offset + row.rowIndex;
+        if (expected <= 0 || expected > 999 || row.STT === expected) continue;
+        row.STT = expected;
+        row.review = row.review.filter((reason) => reason !== "Không đọc được STT");
+      }
+    }
+  }
+}
+
+function recoverOverlappingStt(rows) {
+  const knownRows = rows.filter((row) => row.STT != null && row["Tên Người Chơi"] && row.Phái);
+  for (const row of rows) {
+    if (row.STT != null || !row["Tên Người Chơi"] || !row.Phái) continue;
+    const nameKey = normalizeVietnamese(row["Tên Người Chơi"]).replace(/\s/g, "");
+    const classKey = normalizeVietnamese(row.Phái).replace(/\s/g, "");
+    const matches = new Map();
+    for (const candidate of knownRows) {
+      if (candidate.imageIndex === row.imageIndex) continue;
+      if (normalizeVietnamese(candidate.Phái).replace(/\s/g, "") !== classKey) continue;
+      const candidateName = normalizeVietnamese(candidate["Tên Người Chơi"]).replace(/\s/g, "");
+      const score = similarity(nameKey, candidateName);
+      if (score < 0.9) continue;
+      matches.set(candidate.STT, Math.max(matches.get(candidate.STT) || 0, score));
+    }
+    const ranked = [...matches.entries()].sort((a, b) => b[1] - a[1]);
+    if (
+      ranked.length
+      && (ranked.length === 1 || ranked[0][1] - ranked[1][1] >= 0.08)
+    ) {
+      row.STT = ranked[0][0];
+      row.review = row.review.filter((reason) => reason !== "Không đọc được STT");
+    }
+  }
 }
 
 function groupVotes(votes, field) {
@@ -323,12 +604,14 @@ function groupVotes(votes, field) {
     const value = vote[field];
     if (!value) continue;
     const key = normalizeVietnamese(value).replace(/\s/g, "");
-    const group = groups.get(key) || { value, count: 0, confidence: 0 };
+    const confidence = vote[`${field}Confidence`] || 0;
+    const group = groups.get(key) || { value, count: 0, confidence: 0, confidenceTotal: 0 };
     group.count += 1;
-    group.confidence = Math.max(group.confidence, vote[`${field}Confidence`] || 0);
-    if ((vote[`${field}Confidence`] || 0) > (group.bestConfidence || 0)) {
+    group.confidenceTotal += confidence;
+    group.confidence = group.confidenceTotal / group.count;
+    if (confidence > (group.bestConfidence || 0)) {
       group.value = value;
-      group.bestConfidence = vote[`${field}Confidence`] || 0;
+      group.bestConfidence = confidence;
     }
     groups.set(key, group);
   }
@@ -353,18 +636,37 @@ function columnName(index) {
   return name;
 }
 
-function worksheetXml(rows) {
+const workbookStyles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><color rgb="FF1E293B"/><name val="Aptos"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font><font><b/><sz val="11"/><color rgb="FF263654"/><name val="Aptos"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF263654"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F6FC"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD9E2F3"/></left><right style="thin"><color rgb="FFD9E2F3"/></right><top style="thin"><color rgb="FFD9E2F3"/></top><bottom style="thin"><color rgb="FFD9E2F3"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+
+function worksheetXml(rows, options = {}) {
+  const headerRows = new Set(options.headerRows || []);
+  const labelColumnRows = new Set(options.labelColumnRows || []);
+  const columns = (options.widths || []).map((width, index) => (
+    `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`
+  )).join("");
   const body = rows.map((row, rowIndex) => {
     const cells = row.map((value, columnIndex) => {
       const reference = `${columnName(columnIndex)}${rowIndex + 1}`;
+      const style = headerRows.has(rowIndex)
+        ? 1
+        : labelColumnRows.has(rowIndex) && columnIndex === 0
+          ? 4
+          : rowIndex % 2 ? 3 : 2;
       if (typeof value === "number" && Number.isFinite(value)) {
-        return `<c r="${reference}"><v>${value}</v></c>`;
+        return `<c r="${reference}" s="${style}"><v>${value}</v></c>`;
       }
-      return `<c r="${reference}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
+      return `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
     }).join("");
-    return `<row r="${rowIndex + 1}">${cells}</row>`;
+    const height = headerRows.has(rowIndex) ? 26 : 22;
+    return `<row r="${rowIndex + 1}" ht="${height}" customHeight="1">${cells}</row>`;
   }).join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+  const freeze = options.freezeRows
+    ? `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${options.freezeRows}" topLeftCell="A${options.freezeRows + 1}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A${options.freezeRows + 1}" sqref="A${options.freezeRows + 1}"/></sheetView></sheetViews>`
+    : "";
+  const filters = options.autoFilterRef
+    ? `<autoFilter ref="${options.autoFilterRef}"/>`
+    : "";
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${freeze}<sheetFormatPr defaultRowHeight="22"/>${columns ? `<cols>${columns}</cols>` : ""}<sheetData>${body}</sheetData>${filters}<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/></worksheet>`;
 }
 
 export function buildExcel(rows, missing, conflicts, imageCount, createdAt = new Date()) {
@@ -385,15 +687,26 @@ export function buildExcel(rows, missing, conflicts, imageCount, createdAt = new
     ...(review.length ? review : [["Không có ô nào cần xem lại", ""]]),
   ];
   const files = {
-    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
     "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
     "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Danh sách" sheetId="1" r:id="rId1"/><sheet name="Kiểm tra" sheetId="2" r:id="rId2"/></sheets></workbook>`,
-    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>`,
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    "xl/styles.xml": workbookStyles,
     "xl/worksheets/sheet1.xml": worksheetXml([
       COLUMNS,
       ...rows.map((row) => [row.STT, row["Tên Người Chơi"], row.Phái]),
-    ]),
-    "xl/worksheets/sheet2.xml": worksheetXml(checkRows),
+    ], {
+      widths: [9, 32, 22],
+      headerRows: [0],
+      freezeRows: 1,
+      autoFilterRef: `A1:C${rows.length + 1}`,
+    }),
+    "xl/worksheets/sheet2.xml": worksheetXml(checkRows, {
+      widths: [34, 64],
+      headerRows: [0, 8],
+      labelColumnRows: [1, 2, 3, 4, 5, 6],
+      autoFilterRef: `A9:B${checkRows.length}`,
+    }),
   };
   return zipSync(
     Object.fromEntries(Object.entries(files).map(([name, content]) => [name, strToU8(content)])),
