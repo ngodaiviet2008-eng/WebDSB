@@ -13,7 +13,7 @@ Website quét danh sách thành viên bang hội từ ảnh, nhận diện tên 
 - Xem và chỉnh sửa kết quả trước khi xuất Excel.
 - Tạo workbook gồm trang danh sách và trang kiểm tra; danh sách có bộ lọc, tiêu đề cố định và màu hàng xen kẽ.
 
-> Độ chính xác OCR phụ thuộc vào độ rõ và bố cục ảnh. Hãy xem lại các ô được đánh dấu trước khi dùng hoặc chia sẻ file Excel.
+> Độ chính xác OCR phụ thuộc vào độ rõ và bố cục ảnh (được dùng cho ảnh có độ phân giải 2712x1220). Hãy xem lại các ô được đánh dấu trước khi dùng hoặc chia sẻ file Excel.
 
 ## Cách sử dụng
 
