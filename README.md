@@ -45,6 +45,17 @@ Sau đó mở <http://localhost:8000>. Dừng máy chủ bằng `Ctrl+C`.
 
 Lệnh build tạo website tĩnh trong thư mục `public/`; thư mục này không được đưa vào Git vì có thể tạo lại.
 
+### Chạy bằng Flask trên cổng 5000
+
+Sau khi build `public/` như hướng dẫn trên, cài các gói Python và chạy Flask:
+
+```powershell
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Sau đó mở [http://127.0.0.1:5000/](http://127.0.0.1:5000/). Đây là địa chỉ cục bộ, chỉ truy cập được trên máy bạn khi Flask đang chạy. Dừng máy chủ bằng `Ctrl+C`.
+
 ## Kiểm thử
 
 ```powershell
